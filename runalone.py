@@ -78,12 +78,15 @@ class KaraokeApp(QWidget):
         """Chuyển sang bài tiếp theo"""
         if self.current_song_index < len(self.playlist) - 1:
             self.current_song_index += 1
-            if self.load_song(self.current_song_index):
-                pygame.mixer.music.play()
-                self.is_paused = False
-                print(f"▶ Chuyển sang bài: {self.playlist[self.current_song_index]}")
         else:
-            print("⏹ Đã hết playlist")
+            # Quay lại bài đầu tiên khi hết playlist
+            self.current_song_index = 0
+            print("🔄 Playlist đã hết, quay lại bài đầu tiên")
+        
+        if self.load_song(self.current_song_index):
+            pygame.mixer.music.play()
+            self.is_paused = False
+            print(f"▶ Chuyển sang bài: {self.playlist[self.current_song_index]}")
 
     def previous_song(self):
         """Quay lại bài trước"""
@@ -283,6 +286,7 @@ if __name__ == "__main__":
     
     # Định nghĩa playlist
     playlist = [
+        "Xa Em",
         "Không Buông",
         "Mất Kết Nối"
     ]
