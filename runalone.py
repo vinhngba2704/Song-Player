@@ -52,8 +52,11 @@ class KaraokeApp(QWidget):
         self.setWindowTitle(f"Song Player - Made by vinhngba2704 🤟 - ({song_name}) [{index+1}/{len(self.playlist)}]")
         
         # Đường dẫn file
-        self.mp3_path = f"backend/sounds/{normalized_name}.mp3"
-        self.lrc_path = f"backend/lyrics/{normalized_name}.lrc"
+        # self.mp3_path = f"backend/sounds/{normalized_name}.mp3"
+        # self.lrc_path = f"backend/lyrics/{normalized_name}.lrc"
+
+        self.mp3_path = f"sounds/{normalized_name}.mp3"
+        self.lrc_path = f"lyrics/{normalized_name}.lrc"
         
         # Kiểm tra file tồn tại
         if not os.path.exists(self.mp3_path):
