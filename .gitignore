@@ -9,9 +9,11 @@ wheels/
 # Virtual environments
 .venv
 
+# Environment variables
+.env
+
 # File test
 test.ipynb
 
-# Data Folders
-lyrics/
-sounds/
+# File video demo
+Tunify_Demo.mp4

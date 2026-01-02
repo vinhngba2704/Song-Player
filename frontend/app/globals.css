@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+:root {
+  --background: #F7F6E8;
+  --foreground: #0B2E4E;
+  --deep-blue: #0B2E4E;
+  --blue-teal: #2F7DA2;
+  --accent-purple: #C9B5FF;
+  --highlight-yellow: #FFD84D;
+  --bg-cream: #F7F6E8;
+  --bg-panel: #E6E8EC;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+/* SỬA: Đảm bảo app luôn chiếm toàn bộ màn hình, không có scroll thừa ở body */
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* Ngăn chặn scroll toàn trang */
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom scrollbar styling cho các vùng nội dung (Playlist) */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 5px; /* Làm thanh cuộn mảnh hơn */
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent; /* Track trong suốt cho hiện đại */
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(47, 125, 162, 0.3); /* Blue teal với độ trong suốt */
+  border-radius: 20px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: var(--blue-teal);
+}
+
+/* LƯU Ý: Xóa bỏ transition: all ở đây để tránh làm lag hiệu ứng chạy lời nhạc */
+/* Các transition nên được định nghĩa bằng tailwind class như 'transition-all' 
+   hoặc 'transition-colors' trực tiếp trong từng component */
