@@ -63,7 +63,12 @@ async def get_songs():
         songs_from_db = get_all_songs()
         songs = []
         
-        backend_url = f"http://{os.getenv('BACKEND_HOST', '127.0.0.1')}:{os.getenv('BACKEND_PORT', '8000')}"
+        # Use BACKEND_URL for production, fallback to constructed URL for local
+        backend_url = os.getenv('BACKEND_URL')
+        if not backend_url:
+            host = os.getenv('BACKEND_HOST', '127.0.0.1')
+            port = os.getenv('BACKEND_PORT', '8000')
+            backend_url = f"http://{host}:{port}"
         
         for song in songs_from_db:
             song_id = song["_id"]
