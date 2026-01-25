@@ -24,6 +24,18 @@ html, body {
   overflow: hidden; /* Ngăn chặn scroll toàn trang */
 }
 
+/* Mobile viewport fix - sử dụng dvh để xử lý thanh địa chỉ trình duyệt mobile */
+@supports (height: 100dvh) {
+  html, body {
+    height: 100dvh;
+  }
+}
+
+/* Safe area padding cho iPhone có notch/dynamic island */
+.safe-area-pb {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

@@ -210,7 +210,8 @@ export default function MusicPlayer() {
 
   return (
     /* THAY ĐỔI: bg-[#121212] (Đen Spotify) và thêm gradient mờ ảo ở góc */
-    <div className="h-screen w-full bg-[#121212] text-white flex flex-col overflow-hidden relative">
+    /* Sử dụng h-dvh cho mobile, fallback h-screen cho desktop */
+    <div className="h-screen h-[100dvh] w-full bg-[#121212] text-white flex flex-col overflow-hidden relative">
 
       {/* Background Decor: Tạo các đốm màu mờ ảo phía sau để nhìn chuyên nghiệp hơn */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/20 rounded-full blur-[120px] pointer-events-none" />
@@ -281,8 +282,8 @@ export default function MusicPlayer() {
         </div>
       </main>
 
-      {/* 4. Footer: Control Bar - Compact design */}
-      <footer className="relative z-10 flex-none bg-black/10 backdrop-blur-2xl border-t border-white/5 py-3 px-6">
+      {/* 4. Footer: Control Bar - Compact design - Luôn hiển thị trên mobile */}
+      <footer className="relative z-20 flex-none bg-[#181818] backdrop-blur-2xl border-t border-white/5 py-3 px-6 safe-area-pb">
         <div className="max-w-7xl mx-auto">
           <PlayerControls
             isPlaying={isPlaying}
