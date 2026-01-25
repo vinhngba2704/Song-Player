@@ -20,9 +20,9 @@ load_dotenv()
 #     from utils.utils import normalize_song_name, parse_lrc, parse_lrc_content
 
 try:
-    from utils.mongodb import get_all_songs, get_song_by_id, update_song_metadata
-    from utils.gcs import generate_signed_url, GCS_BUCKET_NAME
-    from utils.utils import normalize_song_name, parse_lrc, parse_lrc_content
+    from backend.utils.mongodb import get_all_songs, get_song_by_id, update_song_metadata
+    from backend.utils.gcs import generate_signed_url, GCS_BUCKET_NAME
+    from backend.utils.utils import normalize_song_name, parse_lrc, parse_lrc_content
 except ImportError:
     pass
 
