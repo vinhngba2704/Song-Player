@@ -17,3 +17,13 @@ test.ipynb
 
 # File video demo
 Tunify_Demo.mp4
+
+# Backend test folder
+backend/test/
+
+# Local audio/lyrics files (now using GCS)
+backend/lyrics/
+backend/sounds/
+
+# Google Cloud credentials
+backend/hobby-485302-18fa29b07e5a.json

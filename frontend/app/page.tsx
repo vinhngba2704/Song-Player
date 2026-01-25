@@ -31,16 +31,23 @@ export default function MusicPlayer() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
-  
+  const [isShuffleOn, setIsShuffleOn] = useState<boolean>(false);
+
   const audioRef = useRef<HTMLAudioElement>(null);
   const requestRef = useRef<number>(null);
+  const isFirstSongInitialized = useRef<boolean>(false);
 
-  // 1. Fetch danh sách bài hát
-  useEffect(() => {
+  // Hàm fetch danh sách bài hát (tách riêng để có thể gọi lại)
+  const fetchSongs = () => {
     fetch(`${API_URL}/api/songs`)
       .then(res => res.json())
       .then(data => setSongs(data.songs || []))
       .catch(err => console.error('Error fetching songs:', err));
+  };
+
+  // 1. Fetch danh sách bài hát lần đầu
+  useEffect(() => {
+    fetchSongs();
   }, []);
 
   // 2. Load lyrics khi đổi bài
@@ -92,7 +99,7 @@ export default function MusicPlayer() {
     return () => { if (requestRef.current) cancelAnimationFrame(requestRef.current); };
   }, [isPlaying, lyrics, offset]);
 
-  // Cập nhật duration khi audio load
+  // Cập nhật duration khi audio load - thêm currentSong để effect chạy khi audio element được tạo lần đầu
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -101,9 +108,32 @@ export default function MusicPlayer() {
       setDuration(audio.duration);
     };
 
+    const handleCanPlay = () => {
+      // Khi audio sẵn sàng phát, cập nhật duration nếu chưa có
+      if (duration === 0 && audio.duration) {
+        setDuration(audio.duration);
+      }
+    };
+
+    // Nếu audio đã có metadata (readyState >= 1), set duration ngay lập tức
+    if (audio.readyState >= 1) {
+      setDuration(audio.duration);
+    }
+
+    // Khởi tạo audio cho bài hát đầu tiên
+    if (songs.length > 0 && !isFirstSongInitialized.current) {
+      isFirstSongInitialized.current = true;
+      // Gọi load() để đảm bảo audio được khởi tạo đúng cách
+      audio.load();
+    }
+
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
-    return () => audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-  }, [currentSongIndex]);
+    audio.addEventListener('canplay', handleCanPlay);
+    return () => {
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('canplay', handleCanPlay);
+    };
+  }, [currentSongIndex, songs, duration]);
 
   // Điều khiển
   const handlePlayPause = () => {
@@ -127,9 +157,51 @@ export default function MusicPlayer() {
   };
 
   const handleSeek = (time: number) => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = time;
+    if (!audioRef.current) return;
+
+    const audio = audioRef.current;
+
+    // Nếu audio chưa sẵn sàng để seek (readyState < 1), phải đợi
+    if (audio.readyState < 1) {
+      // Đợi loadedmetadata rồi mới seek
+      const onReady = () => {
+        audio.currentTime = time;
+        setCurrentTime(time);
+        audio.removeEventListener('loadedmetadata', onReady);
+      };
+      audio.addEventListener('loadedmetadata', onReady);
+      audio.load(); // Trigger load nếu chưa load
+    } else {
+      audio.currentTime = time;
       setCurrentTime(time);
+    }
+  };
+
+  // Hàm lấy index bài hát ngẫu nhiên (khác bài hiện tại)
+  const getRandomSongIndex = () => {
+    if (songs.length <= 1) return 0;
+    let randomIndex;
+    do {
+      randomIndex = Math.floor(Math.random() * songs.length);
+    } while (randomIndex === currentSongIndex);
+    return randomIndex;
+  };
+
+  // Xử lý chuyển bài tiếp theo (có shuffle)
+  const handleNext = () => {
+    if (isShuffleOn) {
+      handleSongSelect(getRandomSongIndex());
+    } else if (currentSongIndex < songs.length - 1) {
+      handleSongSelect(currentSongIndex + 1);
+    }
+  };
+
+  // Xử lý khi bài hát kết thúc
+  const handleSongEnded = () => {
+    if (isShuffleOn) {
+      handleSongSelect(getRandomSongIndex());
+    } else if (currentSongIndex < songs.length - 1) {
+      handleSongSelect(currentSongIndex + 1);
     }
   };
 
@@ -139,7 +211,7 @@ export default function MusicPlayer() {
   return (
     /* THAY ĐỔI: bg-[#121212] (Đen Spotify) và thêm gradient mờ ảo ở góc */
     <div className="h-screen w-full bg-[#121212] text-white flex flex-col overflow-hidden relative">
-      
+
       {/* Background Decor: Tạo các đốm màu mờ ảo phía sau để nhìn chuyên nghiệp hơn */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/20 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[10%] right-[-5%] w-[30%] h-[30%] bg-purple-900/10 rounded-full blur-[100px] pointer-events-none" />
@@ -185,51 +257,54 @@ export default function MusicPlayer() {
           <div className="lg:col-span-3 h-full min-h-0 flex flex-col gap-4">
             {/* Song Header */}
             <SongHeader songTitle={currentSong?.title} isPlaying={isPlaying} />
-            
+
             {/* Lyrics Viewer */}
-            <div className="flex-1 min-h-0"> 
-               <LyricsViewer 
-                lyrics={lyrics} 
-                currentLyricIndex={currentLyricIndex} 
+            <div className="flex-1 min-h-0">
+              <LyricsViewer
+                lyrics={lyrics}
+                currentLyricIndex={currentLyricIndex}
                 currentSongTitle={currentSong?.title}
-                progress={lyricProgress} 
+                progress={lyricProgress}
               />
             </div>
           </div>
-          
+
           {/* Cột phải: Playlist - CHỈ GIỮ LẠI layout, bỏ khung viền */}
           <div className="h-full min-h-0"> {/* Xóa rounded-3xl, overflow-hidden, border ở đây */}
-            <PlaylistPanel 
-              songs={filteredSongs} 
-              currentSongIndex={currentSongIndex} 
-              onSongSelect={(i) => handleSongSelect(songs.findIndex(s => s.id === filteredSongs[i].id))} 
+            <PlaylistPanel
+              songs={filteredSongs}
+              currentSongIndex={currentSongIndex}
+              onSongSelect={(i) => handleSongSelect(songs.findIndex(s => s.id === filteredSongs[i].id))}
+              onRefresh={fetchSongs}
             />
           </div>
         </div>
       </main>
 
-      {/* 4. Footer: Control Bar */}
-      <footer className="relative z-10 flex-none bg-black/40 backdrop-blur-2xl border-t border-white/5 p-6">
-        <div className="max-w-6xl mx-auto">
-          <PlayerControls 
-            isPlaying={isPlaying} 
-            currentSongIndex={currentSongIndex} 
-            totalSongs={songs.length} 
+      {/* 4. Footer: Control Bar - Compact design */}
+      <footer className="relative z-10 flex-none bg-black/10 backdrop-blur-2xl border-t border-white/5 py-3 px-6">
+        <div className="max-w-7xl mx-auto">
+          <PlayerControls
+            isPlaying={isPlaying}
+            currentSongIndex={currentSongIndex}
+            totalSongs={songs.length}
             offset={offset}
             currentTime={currentTime}
             duration={duration}
-            onPlayPause={handlePlayPause} 
-            onPrevious={() => handleSongSelect(currentSongIndex - 1)} 
-            onNext={() => handleSongSelect(currentSongIndex + 1)}
-            onOffsetUp={() => setOffset(o => o + 0.1)} 
+            isShuffleOn={isShuffleOn}
+            onPlayPause={handlePlayPause}
+            onPrevious={() => handleSongSelect(currentSongIndex - 1)}
+            onNext={handleNext}
+            onOffsetUp={() => setOffset(o => o + 0.1)}
             onOffsetDown={() => setOffset(o => o - 0.1)}
             onSeek={handleSeek}
+            onShuffleToggle={() => setIsShuffleOn(prev => !prev)}
           />
         </div>
       </footer>
 
-      {currentSong && <audio ref={audioRef} key={currentSong.id} src={currentSong.audioUrl} onEnded={() => handleSongSelect(currentSongIndex + 1)} />}
-      
+      {currentSong && <audio ref={audioRef} key={currentSong.id} src={currentSong.audioUrl} preload="metadata" onEnded={handleSongEnded} />}
+
       {/* CSS Animation cho cột nhạc (Thêm vào global.css hoặc dùng style tag) */}
       <style jsx global>{`
         @keyframes music-bar {

@@ -32,3 +32,21 @@ def parse_lrc(path):
                 data.append({"time": t, "text": match.group(3).strip()})
     data.append({"time": 9999, "text": ""})
     return data
+
+
+def parse_lrc_content(content: str):
+    """Parse LRC content from string instead of file"""
+    data = []
+    if not content:
+        return [{"time": 0, "text": "Không có lời bài hát"}]
+    
+    pattern = re.compile(r'\[(\d+):(\d+\.\d+)\](.*)')
+    
+    for line in content.splitlines():
+        match = pattern.match(line)
+        if match:
+            t = int(match.group(1)) * 60 + float(match.group(2))
+            data.append({"time": t, "text": match.group(3).strip()})
+    
+    data.append({"time": 9999, "text": ""})
+    return data

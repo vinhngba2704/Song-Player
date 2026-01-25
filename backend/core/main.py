@@ -1,24 +1,37 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
+from pydantic import BaseModel
+from typing import List
 import os
+import tempfile
+import httpx
 from dotenv import load_dotenv
 load_dotenv()
 
-import sys
+# import sys
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# # Add parent directory to path for imports
+# sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# try:
+#     from utils.utils import normalize_song_name, parse_lrc, parse_lrc_content
+# except ImportError:
+#     from utils.utils import normalize_song_name, parse_lrc, parse_lrc_content
 
 try:
-    from core.utils import normalize_song_name, parse_lrc
+    from utils.mongodb import get_all_songs, get_song_by_id, update_song_metadata
+    from utils.gcs import generate_signed_url, GCS_BUCKET_NAME
+    from utils.utils import normalize_song_name, parse_lrc, parse_lrc_content
 except ImportError:
-    from utils import normalize_song_name, parse_lrc
+    pass
 
 app = FastAPI(title="Music Player API", version="1.0.0")
 
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+
+# Import password - should be set via environment variable in production
+IMPORT_PASSWORD = os.getenv("IMPORT_PASSWORD", "Bavinh2704!@#")
 
 # 1. Cấu hình CORS: Cho phép Frontend (Next.js) truy cập API này
 app.add_middleware(
@@ -29,70 +42,269 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 2. Định nghĩa đường dẫn thư mục (Dựa trên cấu trúc file bạn đã gửi)
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # Lên 1 cấp
-SOUNDS_DIR = os.path.join(BASE_DIR, "sounds")
-LYRICS_DIR = os.path.join(BASE_DIR, "lyrics")
-
-# 3. Mount các file tĩnh để trình duyệt có thể phát nhạc trực tiếp
-app.mount("/static/sounds", StaticFiles(directory=SOUNDS_DIR), name="sounds")
-
 @app.get("/")
 async def root():
     """Health check endpoint"""
     return {"message": "Music Player API is running", "version": "1.0.0"}
 
+@app.get("/api/debug/songs")
+async def debug_songs():
+    """Debug endpoint to check raw MongoDB data"""
+    try:
+        songs_from_db = get_all_songs()
+        return {"songs": songs_from_db, "total": len(songs_from_db)}
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/api/songs")
 async def get_songs():
-    """Lấy danh sách tất cả bài hát hiện có"""
-    songs = []
-    if not os.path.exists(SOUNDS_DIR):
-        return []
-    
-    backend_url = f"http://{os.getenv('BACKEND_HOST', '127.0.0.1')}:{os.getenv('BACKEND_PORT', '8000')}"
+    """Lấy danh sách tất cả bài hát từ MongoDB"""
+    try:
+        songs_from_db = get_all_songs()
+        songs = []
         
-    for filename in os.listdir(SOUNDS_DIR):
-        if filename.endswith(".mp3"):
-            # Lấy tên bài hát (loại bỏ đuôi .mp3)
-            song_id = filename.replace(".mp3", "")
-            # Kiểm tra xem có file lyrics không
-            lrc_path = os.path.join(LYRICS_DIR, f"{song_id}.lrc")
-            has_lyrics = os.path.exists(lrc_path)
-            
+        backend_url = f"http://{os.getenv('BACKEND_HOST', '127.0.0.1')}:{os.getenv('BACKEND_PORT', '8000')}"
+        
+        for song in songs_from_db:
+            song_id = song["_id"]
             songs.append({
                 "id": song_id,
-                "title": song_id.replace("_", " "),  # Chuyển underscore thành khoảng trắng
-                "audioUrl": f"{backend_url}/static/sounds/{filename}",
-                "hasLyrics": has_lyrics
+                "title": song.get("title", "Unknown"),
+                # Trỏ tới backend API thay vì GCS signed URL trực tiếp
+                "audioUrl": f"{backend_url}/api/audio/{song_id}",
+                "hasLyrics": song.get("has_lyrics", False)
             })
+        
+        return {"songs": songs, "total": len(songs)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get songs: {str(e)}")
+
+async def get_valid_signed_url(song_id: str, url_field: str, blob_field: str):
+    """
+    Helper function to get a valid signed URL.
+    If the current URL is expired (non-200 response), generate a new one and update MongoDB.
     
-    return {"songs": songs, "total": len(songs)}
+    Args:
+        song_id: The song document ID
+        url_field: The field name for signed URL in MongoDB (gcs_mp3_path or gcs_lrc_path)
+        blob_field: The field name for blob path in MongoDB (gcs_mp3_blob or gcs_lrc_blob)
+    
+    Returns:
+        A tuple of (valid_url, song_document) or raises HTTPException
+    """
+    song = get_song_by_id(song_id)
+    
+    if not song:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bài hát")
+    
+    current_url = song.get(url_field)
+    blob_path = song.get(blob_field)
+    
+    # If blob_path doesn't exist, try to extract it from the signed URL
+    if not blob_path and current_url:
+        # Extract blob path from signed URL
+        # URL format: https://storage.googleapis.com/bucket-name/blob/path?query...
+        try:
+            from urllib.parse import urlparse, unquote
+            parsed = urlparse(current_url)
+            # Path is /bucket-name/blob/path, we need blob/path
+            path_parts = parsed.path.split('/', 2)  # ['', 'bucket-name', 'blob/path']
+            if len(path_parts) >= 3:
+                blob_path = unquote(path_parts[2])
+                # Save blob_path to MongoDB for future use
+                update_song_metadata(song_id, {blob_field: blob_path})
+        except Exception:
+            pass
+    
+    if not blob_path:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy blob path cho {blob_field}")
+    
+    # Check if URL exists and is still valid
+    if current_url:
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.head(current_url, follow_redirects=True, timeout=10.0)
+                
+                if response.status_code == 200:
+                    return current_url, song
+            except Exception:
+                pass  # URL check failed, regenerate below
+    
+    # URL expired or doesn't exist, generate new one using blob_path
+    try:
+        new_url = generate_signed_url(GCS_BUCKET_NAME, blob_path)
+        
+        # Update MongoDB with new URL
+        update_song_metadata(song_id, {url_field: new_url})
+        
+        return new_url, song
+        
+    except Exception as gen_error:
+        raise HTTPException(status_code=500, detail=f"Failed to get valid URL: {str(gen_error)}")
+
 
 @app.get("/api/lyrics/{song_id}")
 async def get_lyrics(song_id: str):
-    """Lấy lời bài hát đã được parse sang JSON"""
-    lrc_filename = f"{song_id}.lrc"
-    lrc_path = os.path.join(LYRICS_DIR, lrc_filename)
-    
-    if not os.path.exists(lrc_path):
-        raise HTTPException(status_code=404, detail="Không tìm thấy file lời bài hát")
-    
-    # Sử dụng hàm parse_lrc
-    lyrics_data = parse_lrc(lrc_path)
-    return {"songId": song_id, "lyrics": lyrics_data}
+    """Lấy lời bài hát từ GCS và parse sang JSON"""
+    try:
+        valid_url, song = await get_valid_signed_url(
+            song_id, 
+            "gcs_lrc_path", 
+            "gcs_lrc_blob"
+        )
+        
+        # Fetch lyrics content from GCS
+        async with httpx.AsyncClient() as client:
+            response = await client.get(valid_url, timeout=30.0)
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=404, detail="Không thể tải file lời bài hát")
+            
+            lrc_content = response.text
+            
+            # Parse LRC content
+            lyrics_data = parse_lrc_content(lrc_content)
+            return {"songId": song_id, "lyrics": lyrics_data}
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy lyrics: {str(e)}")
+
 
 @app.get("/api/audio/{song_id}")
 async def get_audio(song_id: str):
-    """Trả về file audio để stream"""
-    audio_path = os.path.join(SOUNDS_DIR, f"{song_id}.mp3")
-    
-    if not os.path.exists(audio_path):
-        raise HTTPException(status_code=404, detail="Không tìm thấy file nhạc")
-    
-    return FileResponse(audio_path, media_type="audio/mpeg")
+    """Stream audio từ GCS signed URL"""
+    try:
+        valid_url, song = await get_valid_signed_url(
+            song_id,
+            "gcs_mp3_path",
+            "gcs_mp3_blob"
+        )
+        
+        # Redirect to the signed URL instead of proxying
+        # This is more efficient for large audio files
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=valid_url, status_code=302)
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi stream audio: {str(e)}")
 
-if __name__ == "__main__":
-    import uvicorn
-    host = os.getenv("BACKEND_HOST", "127.0.0.1")
-    port = int(os.getenv("BACKEND_PORT", "8000"))
-    uvicorn.run(app, host=host, port=port)
+
+# Pydantic model for password verification request
+class PasswordVerifyRequest(BaseModel):
+    password: str
+
+
+@app.post("/api/verify-import-password")
+async def verify_import_password(request: PasswordVerifyRequest):
+    """Xác thực mật khẩu để import track"""
+    if request.password == IMPORT_PASSWORD:
+        return {"success": True, "message": "Password verified successfully"}
+    else:
+        raise HTTPException(status_code=401, detail="Incorrect password")
+
+
+@app.post("/api/import-track")
+async def import_track(
+    title: str = Form(...),
+    sound_file: UploadFile = File(...),
+    lyrics_file: UploadFile = File(default=None)
+):
+    """Upload track files to Google Cloud Storage and save metadata to MongoDB"""
+    try:
+        from utils.gcs import upload_file, generate_signed_url, GCS_BUCKET_NAME
+        from utils.mongodb import insert_song_metadata, update_song_metadata, SongMetadata
+        
+        uploaded_sound = None
+        uploaded_lyrics = None
+        sound_blob_path = None
+        lyrics_blob_path = None
+        
+        # Determine has_lyrics based on whether lyrics file exists
+        has_lyrics = lyrics_file is not None and lyrics_file.filename is not None and lyrics_file.filename != ""
+        
+        # Step 1: Create document with empty paths first
+        song_metadata = SongMetadata(
+            title=title,
+            gcs_mp3_blob=None,
+            gcs_lrc_blob=None,
+            gcs_mp3_path=None,
+            gcs_lrc_path=None,
+            has_lyrics=has_lyrics
+        )
+        inserted_id = insert_song_metadata(song_metadata)
+        
+        # Step 2: Upload sound file to sounds/ folder
+        if sound_file and sound_file.filename:
+            # Create a temporary file to save the upload
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+                content = await sound_file.read()
+                tmp.write(content)
+                tmp_path = tmp.name
+            
+            try:
+                # Upload to GCS
+                sound_blob_path = f"sounds/{sound_file.filename}"
+                upload_file(GCS_BUCKET_NAME, tmp_path, sound_blob_path)
+                uploaded_sound = sound_file.filename
+            finally:
+                # Clean up temp file
+                os.unlink(tmp_path)
+        
+        # Step 3: Upload lyrics file to lyrics/ folder (optional)
+        if lyrics_file and lyrics_file.filename:
+            # Create a temporary file to save the upload
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".lrc") as tmp:
+                content = await lyrics_file.read()
+                tmp.write(content)
+                tmp_path = tmp.name
+            
+            try:
+                # Upload to GCS
+                lyrics_blob_path = f"lyrics/{lyrics_file.filename}"
+                upload_file(GCS_BUCKET_NAME, tmp_path, lyrics_blob_path)
+                uploaded_lyrics = lyrics_file.filename
+            finally:
+                # Clean up temp file
+                os.unlink(tmp_path)
+        
+        # Step 4: Generate signed URLs and update document with both blob paths and signed URLs
+        update_fields = {}
+        
+        if sound_blob_path:
+            mp3_signed_url = generate_signed_url(GCS_BUCKET_NAME, sound_blob_path)
+            update_fields["gcs_mp3_blob"] = sound_blob_path
+            update_fields["gcs_mp3_path"] = mp3_signed_url
+        
+        if lyrics_blob_path:
+            lrc_signed_url = generate_signed_url(GCS_BUCKET_NAME, lyrics_blob_path)
+            update_fields["gcs_lrc_blob"] = lyrics_blob_path
+            update_fields["gcs_lrc_path"] = lrc_signed_url
+        
+        if update_fields:
+            update_song_metadata(inserted_id, update_fields)
+        
+        return {
+            "success": True,
+            "message": "Track imported successfully",
+            "title": title,
+            "uploaded_sound": uploaded_sound,
+            "uploaded_lyrics": uploaded_lyrics,
+            "has_lyrics": has_lyrics,
+            "mongodb_id": str(inserted_id),
+            "gcs_mp3_url": update_fields.get("gcs_mp3_path"),
+            "gcs_lrc_url": update_fields.get("gcs_lrc_path")
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+# if __name__ == "__main__":
+#     import uvicorn
+#     host = os.getenv("BACKEND_HOST", "127.0.0.1")
+#     port = int(os.getenv("BACKEND_PORT", "8000"))
+#     uvicorn.run(app, host=host, port=port)
