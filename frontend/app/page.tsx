@@ -251,8 +251,8 @@ export default function MusicPlayer() {
         </div>
       </div>
 
-      {/* 3. Main Content: Grid Layout */}
-      <main className="relative z-10 flex-1 min-h-0 px-8 pb-6">
+      {/* 3. Main Content: Grid Layout - pb-24 để chừa chỗ cho fixed footer */}
+      <main className="relative z-10 flex-1 min-h-0 px-8 pb-24">
         <div className="max-w-[1920px] mx-auto h-full grid grid-cols-1 lg:grid-cols-4 gap-8">
           {/* Cột trái: Song Header + Lyrics - Chiếm 2/3 */}
           <div className="lg:col-span-3 h-full min-h-0 flex flex-col gap-4">
@@ -282,8 +282,8 @@ export default function MusicPlayer() {
         </div>
       </main>
 
-      {/* 4. Footer: Control Bar - Compact design - Luôn hiển thị trên mobile */}
-      <footer className="relative z-20 flex-none bg-[#181818] backdrop-blur-2xl border-t border-white/5 py-3 px-6 safe-area-pb">
+      {/* 4. Footer: Control Bar - Fixed position để luôn hiển thị trên mobile */}
+      <footer className="fixed bottom-0 left-0 right-0 z-50 bg-[#181818] backdrop-blur-2xl border-t border-white/5 py-3 px-6 safe-area-pb">
         <div className="max-w-7xl mx-auto">
           <PlayerControls
             isPlaying={isPlaying}
