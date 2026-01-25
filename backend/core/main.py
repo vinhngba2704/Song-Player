@@ -4,20 +4,27 @@ from fastapi.responses import FileResponse, StreamingResponse, Response
 from pydantic import BaseModel
 from typing import List
 import os
-import sys
 import tempfile
 import httpx
 from dotenv import load_dotenv
 load_dotenv()
 
-# Add parent directory to path for imports (backend/)
-backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if backend_dir not in sys.path:
-    sys.path.insert(0, backend_dir)
+# import sys
 
-from utils.mongodb import get_all_songs, get_song_by_id, update_song_metadata
-from utils.gcs import generate_signed_url, GCS_BUCKET_NAME
-from utils.utils import parse_lrc_content
+# # Add parent directory to path for imports
+# sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# try:
+#     from utils.utils import normalize_song_name, parse_lrc, parse_lrc_content
+# except ImportError:
+#     from utils.utils import normalize_song_name, parse_lrc, parse_lrc_content
+
+try:
+    from utils.mongodb import get_all_songs, get_song_by_id, update_song_metadata
+    from utils.gcs import generate_signed_url, GCS_BUCKET_NAME
+    from utils.utils import normalize_song_name, parse_lrc, parse_lrc_content
+except ImportError:
+    pass
 
 app = FastAPI(title="Music Player API", version="1.0.0")
 
@@ -302,3 +309,7 @@ if __name__ == "__main__":
     host = os.getenv("BACKEND_HOST", "0.0.0.0")
     port = int(os.getenv("PORT", os.getenv("BACKEND_PORT", "8000")))
     uvicorn.run(app, host=host, port=port)
+
+# if __name__ == "__main__":
+#     import os
+#     print(os.path.dirname(os.path.abspath(__file__)))
