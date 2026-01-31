@@ -256,6 +256,106 @@ async def delete_track(song_id: str):
         raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
 
 
+@app.put("/api/track/{song_id}")
+async def update_track(
+    song_id: str,
+    title: str = Form(default=None),
+    sound_file: UploadFile = File(default=None),
+    lyrics_file: UploadFile = File(default=None)
+):
+    """Update a track's title, sound file, and/or lyrics file"""
+    try:
+        from backend.utils.gcs import upload_file, delete_file, generate_signed_url, GCS_BUCKET_NAME
+        
+        # Step 1: Get existing song metadata
+        song = get_song_by_id(song_id)
+        if not song:
+            raise HTTPException(status_code=404, detail="Track not found")
+        
+        update_fields = {}
+        updated_sound = None
+        updated_lyrics = None
+        
+        # Step 2: Update title if provided
+        if title and title.strip():
+            update_fields["title"] = title.strip()
+        
+        # Step 3: Update sound file if provided
+        if sound_file and sound_file.filename:
+            old_mp3_blob = song.get("gcs_mp3_blob")
+            
+            # Delete old MP3 file from GCS if exists
+            if old_mp3_blob:
+                delete_file(GCS_BUCKET_NAME, old_mp3_blob)
+                print(f"Deleted old MP3 file: {old_mp3_blob}")
+            
+            # Upload new MP3 file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+                content = await sound_file.read()
+                tmp.write(content)
+                tmp_path = tmp.name
+            
+            try:
+                new_mp3_blob = f"sounds/{sound_file.filename}"
+                upload_file(GCS_BUCKET_NAME, tmp_path, new_mp3_blob)
+                
+                # Generate new signed URL
+                new_mp3_url = generate_signed_url(GCS_BUCKET_NAME, new_mp3_blob)
+                
+                update_fields["gcs_mp3_blob"] = new_mp3_blob
+                update_fields["gcs_mp3_path"] = new_mp3_url
+                updated_sound = sound_file.filename
+            finally:
+                os.unlink(tmp_path)
+        
+        # Step 4: Update lyrics file if provided
+        if lyrics_file and lyrics_file.filename:
+            old_lrc_blob = song.get("gcs_lrc_blob")
+            
+            # Delete old LRC file from GCS if exists
+            if old_lrc_blob:
+                delete_file(GCS_BUCKET_NAME, old_lrc_blob)
+                print(f"Deleted old LRC file: {old_lrc_blob}")
+            
+            # Upload new LRC file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".lrc") as tmp:
+                content = await lyrics_file.read()
+                tmp.write(content)
+                tmp_path = tmp.name
+            
+            try:
+                new_lrc_blob = f"lyrics/{lyrics_file.filename}"
+                upload_file(GCS_BUCKET_NAME, tmp_path, new_lrc_blob)
+                
+                # Generate new signed URL
+                new_lrc_url = generate_signed_url(GCS_BUCKET_NAME, new_lrc_blob)
+                
+                update_fields["gcs_lrc_blob"] = new_lrc_blob
+                update_fields["gcs_lrc_path"] = new_lrc_url
+                update_fields["has_lyrics"] = True
+                updated_lyrics = lyrics_file.filename
+            finally:
+                os.unlink(tmp_path)
+        
+        # Step 5: Update MongoDB if there are changes
+        if update_fields:
+            update_song_metadata(song_id, update_fields)
+        
+        return {
+            "success": True,
+            "message": "Track updated successfully",
+            "song_id": song_id,
+            "updated_title": update_fields.get("title"),
+            "updated_sound": updated_sound,
+            "updated_lyrics": updated_lyrics
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
+
+
 @app.post("/api/import-track")
 async def import_track(
     title: str = Form(...),

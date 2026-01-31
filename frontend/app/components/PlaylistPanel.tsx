@@ -26,18 +26,28 @@ interface ImportFormData {
 
 export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, onRefresh }: PlaylistPanelProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [passwordAction, setPasswordAction] = useState<'import' | 'delete'>('import');
+  const [passwordAction, setPasswordAction] = useState<'import' | 'delete' | 'update'>('import');
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [deleteTrackId, setDeleteTrackId] = useState<string | null>(null);
+  const [updateTrackId, setUpdateTrackId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [deleteSuccess, setDeleteSuccess] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateError, setUpdateError] = useState('');
+  const [updateSuccess, setUpdateSuccess] = useState(false);
   const [formData, setFormData] = useState<ImportFormData>({
+    title: '',
+    soundFile: null,
+    lyricsFile: null,
+  });
+  const [updateFormData, setUpdateFormData] = useState<ImportFormData>({
     title: '',
     soundFile: null,
     lyricsFile: null,
@@ -45,6 +55,8 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
 
   const soundInputRef = useRef<HTMLInputElement>(null);
   const lyricsInputRef = useRef<HTMLInputElement>(null);
+  const updateSoundInputRef = useRef<HTMLInputElement>(null);
+  const updateLyricsInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close menu when clicking outside
@@ -96,6 +108,17 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
         } else if (passwordAction === 'delete' && deleteTrackId) {
           // Proceed with delete
           handleDeleteConfirmed();
+        } else if (passwordAction === 'update' && updateTrackId) {
+          // Open update modal
+          const trackToUpdate = songs.find(s => s.id === updateTrackId);
+          if (trackToUpdate) {
+            setUpdateFormData({
+              title: trackToUpdate.title,
+              soundFile: null,
+              lyricsFile: null,
+            });
+          }
+          setIsUpdateModalOpen(true);
         }
       } else {
         setPasswordError('Incorrect password. Please try again.');
@@ -151,6 +174,7 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
     setPasswordError('');
     setShowPassword(false);
     setDeleteTrackId(null);
+    setUpdateTrackId(null);
   };
 
   const handleTrackMenuClick = (e: React.MouseEvent, songId: string) => {
@@ -159,9 +183,117 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
   };
 
   const handleUpdateTrack = (songId: string) => {
-    // TODO: Implement update track logic later
-    console.log('Update track:', songId);
     setMenuOpenId(null);
+    setUpdateTrackId(songId);
+    setPasswordAction('update');
+    setIsPasswordModalOpen(true);
+    setPassword('');
+    setPasswordError('');
+    setShowPassword(false);
+  };
+
+  const handleCloseUpdateModal = () => {
+    setIsUpdateModalOpen(false);
+    setUpdateFormData({ title: '', soundFile: null, lyricsFile: null });
+    setUpdateError('');
+    setUpdateSuccess(false);
+    setUpdateTrackId(null);
+    if (updateSoundInputRef.current) {
+      updateSoundInputRef.current.value = '';
+    }
+    if (updateLyricsInputRef.current) {
+      updateLyricsInputRef.current.value = '';
+    }
+  };
+
+  const handleUpdateSoundFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setUpdateFormData(prev => ({
+        ...prev,
+        soundFile: e.target.files![0]
+      }));
+    }
+  };
+
+  const handleUpdateLyricsFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setUpdateFormData(prev => ({
+        ...prev,
+        lyricsFile: e.target.files![0]
+      }));
+    }
+  };
+
+  const removeUpdateSoundFile = () => {
+    setUpdateFormData(prev => ({
+      ...prev,
+      soundFile: null
+    }));
+    if (updateSoundInputRef.current) {
+      updateSoundInputRef.current.value = '';
+    }
+  };
+
+  const removeUpdateLyricsFile = () => {
+    setUpdateFormData(prev => ({
+      ...prev,
+      lyricsFile: null
+    }));
+    if (updateLyricsInputRef.current) {
+      updateLyricsInputRef.current.value = '';
+    }
+  };
+
+  const handleUpdate = async () => {
+    if (!updateTrackId) return;
+
+    setIsUpdating(true);
+    setUpdateError('');
+
+    try {
+      const formDataToSend = new FormData();
+
+      // Append title if changed
+      if (updateFormData.title.trim()) {
+        formDataToSend.append('title', updateFormData.title);
+      }
+
+      // Append sound file if provided
+      if (updateFormData.soundFile) {
+        formDataToSend.append('sound_file', updateFormData.soundFile);
+      }
+
+      // Append lyrics file if provided
+      if (updateFormData.lyricsFile) {
+        formDataToSend.append('lyrics_file', updateFormData.lyricsFile);
+      }
+
+      const response = await fetch(`${API_URL}/api/track/${updateTrackId}`, {
+        method: 'PUT',
+        body: formDataToSend,
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Update successful:', result);
+        setUpdateSuccess(true);
+        // Refresh playlist after update
+        if (onRefresh) {
+          onRefresh();
+        }
+        setTimeout(() => {
+          handleCloseUpdateModal();
+          setUpdateSuccess(false);
+        }, 1500);
+      } else {
+        const error = await response.json();
+        setUpdateError(error.detail || 'Update failed. Please try again.');
+      }
+    } catch (error) {
+      setUpdateError('Connection error. Please try again.');
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
   const handleDeleteTrack = (songId: string) => {
@@ -349,12 +481,23 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
               <div className="flex items-center gap-3">
                 <div className={`p-2 rounded-xl ring-1 ${passwordAction === 'delete'
                   ? 'bg-red-500/10 ring-red-500/20'
-                  : 'bg-amber-500/10 ring-amber-500/20'
+                  : passwordAction === 'update'
+                    ? 'bg-blue-500/10 ring-blue-500/20'
+                    : 'bg-amber-500/10 ring-amber-500/20'
                   }`}>
-                  <Lock className={`w-5 h-5 ${passwordAction === 'delete' ? 'text-red-400' : 'text-amber-400'}`} />
+                  <Lock className={`w-5 h-5 ${passwordAction === 'delete'
+                    ? 'text-red-400'
+                    : passwordAction === 'update'
+                      ? 'text-blue-400'
+                      : 'text-amber-400'
+                    }`} />
                 </div>
                 <h2 className="text-white text-lg font-bold">
-                  {passwordAction === 'delete' ? 'Confirm Delete' : 'Enter Password'}
+                  {passwordAction === 'delete'
+                    ? 'Confirm Delete'
+                    : passwordAction === 'update'
+                      ? 'Confirm Update'
+                      : 'Enter Password'}
                 </h2>
               </div>
               <button
@@ -370,7 +513,9 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
               <p className="text-sm text-slate-400 mb-4">
                 {passwordAction === 'delete'
                   ? 'Please enter password to delete this track. This action cannot be undone.'
-                  : 'Please enter the password to access import feature.'}
+                  : passwordAction === 'update'
+                    ? 'Please enter password to update this track.'
+                    : 'Please enter the password to access import feature.'}
               </p>
               <div className="relative">
                 <input
@@ -416,7 +561,9 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
                 disabled={!password.trim() || isVerifying}
                 className={`px-5 py-2.5 text-sm font-bold text-white rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${passwordAction === 'delete'
                   ? 'bg-red-500 hover:bg-red-600'
-                  : 'bg-amber-500 hover:bg-amber-600'
+                  : passwordAction === 'update'
+                    ? 'bg-blue-500 hover:bg-blue-600'
+                    : 'bg-amber-500 hover:bg-amber-600'
                   }`}
               >
                 {isVerifying ? (
@@ -425,7 +572,11 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
                     {passwordAction === 'delete' ? 'Deleting...' : 'Verifying...'}
                   </>
                 ) : (
-                  passwordAction === 'delete' ? 'Delete' : 'Unlock'
+                  passwordAction === 'delete'
+                    ? 'Delete'
+                    : passwordAction === 'update'
+                      ? 'Update'
+                      : 'Unlock'
                 )}
               </button>
             </div>
@@ -590,6 +741,163 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
         </div>
       )}
 
+      {/* UPDATE MODAL */}
+      {isUpdateModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={handleCloseUpdateModal}
+          />
+
+          {/* Modal Content */}
+          <div className="relative bg-[#0f172a] rounded-3xl border border-white/10 shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-500/10 rounded-xl ring-1 ring-blue-500/20">
+                  <Pencil className="w-5 h-5 text-blue-400" />
+                </div>
+                <h2 className="text-white text-lg font-bold">Update Track</h2>
+              </div>
+              <button
+                onClick={handleCloseUpdateModal}
+                className="p-2 hover:bg-white/10 rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-5">
+              {/* Title Field */}
+              <div>
+                <label className="block text-sm font-bold text-slate-300 mb-2">
+                  Title
+                </label>
+                <input
+                  type="text"
+                  value={updateFormData.title}
+                  onChange={(e) => setUpdateFormData(prev => ({ ...prev, title: e.target.value }))}
+                  placeholder="Enter new track title..."
+                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
+                />
+              </div>
+
+              {/* Sounds Field */}
+              <div>
+                <label className="block text-sm font-bold text-slate-300 mb-2">
+                  <Music className="w-4 h-4 inline mr-2" />
+                  Replace Sounds (.mp3)
+                </label>
+                <input
+                  ref={updateSoundInputRef}
+                  type="file"
+                  accept=".mp3,audio/mpeg"
+                  onChange={handleUpdateSoundFileChange}
+                  className="hidden"
+                />
+                {updateFormData.soundFile ? (
+                  <div className="flex items-center justify-between px-3 py-2 bg-blue-500/10 rounded-lg">
+                    <span className="text-sm text-blue-300 truncate flex-1">{updateFormData.soundFile.name}</span>
+                    <button
+                      onClick={removeUpdateSoundFile}
+                      className="p-1 hover:bg-white/10 rounded-lg transition-colors ml-2"
+                    >
+                      <X className="w-3 h-3 text-slate-400" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => updateSoundInputRef.current?.click()}
+                    className="w-full px-4 py-3 bg-white/5 border border-dashed border-white/20 rounded-xl text-slate-400 hover:bg-white/10 hover:border-blue-500/50 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>Click to upload new MP3 file</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Lyrics Field */}
+              <div>
+                <label className="block text-sm font-bold text-slate-300 mb-2">
+                  <FileText className="w-4 h-4 inline mr-2" />
+                  Replace Lyrics (.lrc)
+                </label>
+                <input
+                  ref={updateLyricsInputRef}
+                  type="file"
+                  accept=".lrc"
+                  onChange={handleUpdateLyricsFileChange}
+                  className="hidden"
+                />
+                {updateFormData.lyricsFile ? (
+                  <div className="flex items-center justify-between px-3 py-2 bg-green-500/10 rounded-lg">
+                    <span className="text-sm text-green-300 truncate flex-1">{updateFormData.lyricsFile.name}</span>
+                    <button
+                      onClick={removeUpdateLyricsFile}
+                      className="p-1 hover:bg-white/10 rounded-lg transition-colors ml-2"
+                    >
+                      <X className="w-3 h-3 text-slate-400" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => updateLyricsInputRef.current?.click()}
+                    className="w-full px-4 py-3 bg-white/5 border border-dashed border-white/20 rounded-xl text-slate-400 hover:bg-white/10 hover:border-blue-500/50 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>Click to upload new LRC file</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Update Status Messages */}
+            {updateError && (
+              <div className="px-6 pb-4">
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+                  <p className="text-sm text-red-400">{updateError}</p>
+                </div>
+              </div>
+            )}
+
+            {updateSuccess && (
+              <div className="px-6 pb-4">
+                <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-xl">
+                  <p className="text-sm text-green-400">✅ Track updated successfully!</p>
+                </div>
+              </div>
+            )}
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-white/10">
+              <button
+                onClick={handleCloseUpdateModal}
+                disabled={isUpdating}
+                className="px-5 py-2.5 text-sm font-bold text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdate}
+                disabled={isUpdating || (!updateFormData.title.trim() && !updateFormData.soundFile && !updateFormData.lyricsFile)}
+                className="px-5 py-2.5 text-sm font-bold text-white bg-blue-500 hover:bg-blue-600 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isUpdating ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  'Save Changes'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 3. DANH SÁCH BÀI HÁT */}
       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar relative z-10 px-5 mt-4">
         <div className="space-y-2 pb-8">
@@ -597,7 +905,7 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
             const isActive = index === currentSongIndex;
             const isMenuOpen = menuOpenId === song.id;
             return (
-              <div key={song.id} className="relative">
+              <div key={song.id} className={`relative ${isMenuOpen ? 'z-[100]' : ''}`}>
                 <button
                   onClick={() => onSongSelect(index)}
                   /* ring-inset giúp viền của item active vẽ vào bên trong, 
@@ -665,7 +973,7 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
 
                   {/* Dropdown Menu */}
                   {isMenuOpen && (
-                    <div className="absolute right-0 top-full mt-1 bg-[#1e293b] border border-white/10 rounded-xl shadow-xl overflow-hidden z-50">
+                    <div className="absolute right-0 top-full mt-1 bg-[#1e293b] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-[100]">
                       <button
                         onClick={() => handleUpdateTrack(song.id)}
                         className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-300 hover:bg-white/10 hover:text-white transition-colors whitespace-nowrap"
