@@ -16,6 +16,7 @@ interface PlaylistPanelProps {
   currentSongIndex: number;
   onSongSelect: (index: number) => void;
   onRefresh?: () => void;
+  onReorder?: (fromIndex: number, toIndex: number) => void;
 }
 
 interface ImportFormData {
@@ -24,10 +25,14 @@ interface ImportFormData {
   lyricsFile: File | null;
 }
 
-export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, onRefresh }: PlaylistPanelProps) {
+export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, onRefresh, onReorder }: PlaylistPanelProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+
+  // Drag and drop states
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -304,6 +309,43 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
     setPassword('');
     setPasswordError('');
     setShowPassword(false);
+  };
+
+  // Drag handlers for track reordering
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', index.toString());
+    // Add some opacity to the dragged element
+    const target = e.currentTarget as HTMLElement;
+    setTimeout(() => {
+      target.style.opacity = '0.5';
+    }, 0);
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    const target = e.currentTarget as HTMLElement;
+    target.style.opacity = '1';
+
+    // Perform reorder if valid
+    if (draggedIndex !== null && dragOverIndex !== null && draggedIndex !== dragOverIndex) {
+      onReorder?.(draggedIndex, dragOverIndex);
+    }
+
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index);
+    }
+  };
+
+  const handleDragLeave = () => {
+    // Don't reset immediately to prevent flickering
   };
 
   const handleOpenModal = () => setIsModalOpen(true);
@@ -904,8 +946,35 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
           {songs.map((song, index) => {
             const isActive = index === currentSongIndex;
             const isMenuOpen = menuOpenId === song.id;
+            const isDragging = draggedIndex === index;
+            const isDragOver = dragOverIndex === index && draggedIndex !== index;
+
+            // Calculate transform for push effect
+            let translateClass = '';
+            if (draggedIndex !== null && dragOverIndex !== null && draggedIndex !== dragOverIndex) {
+              if (draggedIndex < dragOverIndex) {
+                // Dragging down: items between move up
+                if (index > draggedIndex && index <= dragOverIndex) {
+                  translateClass = '-translate-y-16';
+                }
+              } else {
+                // Dragging up: items between move down
+                if (index >= dragOverIndex && index < draggedIndex) {
+                  translateClass = 'translate-y-16';
+                }
+              }
+            }
+
             return (
-              <div key={song.id} className={`relative ${isMenuOpen ? 'z-[100]' : ''}`}>
+              <div
+                key={song.id}
+                className={`relative transition-transform duration-200 ease-out cursor-grab active:cursor-grabbing ${isMenuOpen ? 'z-[100]' : ''} ${isDragOver ? 'ring-2 ring-blue-500 ring-inset rounded-2xl' : ''} ${isDragging ? 'opacity-50 scale-95' : ''} ${translateClass}`}
+                draggable
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragEnd={handleDragEnd}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDragLeave={handleDragLeave}
+              >
                 <button
                   onClick={() => onSongSelect(index)}
                   /* ring-inset giúp viền của item active vẽ vào bên trong, 

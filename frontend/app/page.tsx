@@ -38,6 +38,7 @@ export default function MusicPlayer() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const robotRef = useRef<RobotIconHandle>(null);
   const requestRef = useRef<number>(null);
+  const playTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isFirstSongInitialized = useRef<boolean>(false);
 
   // Hàm fetch danh sách bài hát (tách riêng để có thể gọi lại)
@@ -142,21 +143,71 @@ export default function MusicPlayer() {
   const handlePlayPause = () => {
     if (!audioRef.current) return;
     if (isPlaying) audioRef.current.pause();
-    else audioRef.current.play();
+    else {
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(error => {
+          if (error.name !== 'AbortError') {
+            console.error('Play error:', error);
+          }
+        });
+      }
+    }
     setIsPlaying(!isPlaying);
   };
 
   const handleSongSelect = (index: number) => {
+    // Clear previous timeout if exists
+    if (playTimeoutRef.current) {
+      clearTimeout(playTimeoutRef.current);
+    }
+
     setCurrentSongIndex(index);
     setCurrentLyricIndex(0);
     setLyricProgress(0);
     setCurrentTime(0);
-    setTimeout(() => {
+
+    playTimeoutRef.current = setTimeout(() => {
       if (audioRef.current) {
-        audioRef.current.play();
+        const playPromise = audioRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(error => {
+            // Ignore AbortError which happens when quickly switching songs
+            if (error.name !== 'AbortError') {
+              console.error('Play error:', error);
+            }
+          });
+        }
         setIsPlaying(true);
       }
     }, 150);
+  };
+
+  // Xử lý reorder tracks khi kéo thả
+  const handleReorderSongs = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+
+    setSongs(prevSongs => {
+      const newSongs = [...prevSongs];
+      const [movedSong] = newSongs.splice(fromIndex, 1);
+      newSongs.splice(toIndex, 0, movedSong);
+      return newSongs;
+    });
+
+    // Cập nhật currentSongIndex nếu cần
+    setCurrentSongIndex(prevIndex => {
+      if (prevIndex === fromIndex) {
+        // Bài đang phát bị kéo đi
+        return toIndex;
+      } else if (fromIndex < prevIndex && toIndex >= prevIndex) {
+        // Bài bị kéo từ trên xuống dưới bài đang phát
+        return prevIndex - 1;
+      } else if (fromIndex > prevIndex && toIndex <= prevIndex) {
+        // Bài bị kéo từ dưới lên trên bài đang phát
+        return prevIndex + 1;
+      }
+      return prevIndex;
+    });
   };
 
   const handleSeek = (time: number) => {
@@ -194,8 +245,10 @@ export default function MusicPlayer() {
   const handleNext = () => {
     if (isShuffleOn) {
       handleSongSelect(getRandomSongIndex());
-    } else if (currentSongIndex < songs.length - 1) {
-      handleSongSelect(currentSongIndex + 1);
+    } else {
+      // Loop back to start if at the end
+      const nextIndex = (currentSongIndex + 1) % songs.length;
+      handleSongSelect(nextIndex);
     }
   };
 
@@ -203,8 +256,10 @@ export default function MusicPlayer() {
   const handleSongEnded = () => {
     if (isShuffleOn) {
       handleSongSelect(getRandomSongIndex());
-    } else if (currentSongIndex < songs.length - 1) {
-      handleSongSelect(currentSongIndex + 1);
+    } else {
+      // Loop back to start if at the end
+      const nextIndex = (currentSongIndex + 1) % songs.length;
+      handleSongSelect(nextIndex);
     }
   };
 
@@ -292,6 +347,12 @@ export default function MusicPlayer() {
               currentSongIndex={currentSongIndex}
               onSongSelect={(i) => handleSongSelect(songs.findIndex(s => s.id === filteredSongs[i].id))}
               onRefresh={fetchSongs}
+              onReorder={(fromIndex, toIndex) => {
+                // Tìm index thực trong songs array từ filteredSongs
+                const fromRealIndex = songs.findIndex(s => s.id === filteredSongs[fromIndex].id);
+                const toRealIndex = songs.findIndex(s => s.id === filteredSongs[toIndex].id);
+                handleReorderSongs(fromRealIndex, toRealIndex);
+              }}
             />
           </div>
         </div>
@@ -322,10 +383,10 @@ export default function MusicPlayer() {
       {currentSong && <audio ref={audioRef} key={currentSong.id} src={currentSong.audioUrl} preload="metadata" onEnded={handleSongEnded} />}
 
       {/* Robot Icon - xuất hiện tại 1/3 và 2/3 thời gian bài hát */}
-      <RobotIcon 
+      <RobotIcon
         ref={robotRef}
-        currentTime={currentTime} 
-        duration={duration} 
+        currentTime={currentTime}
+        duration={duration}
         songId={currentSong?.id}
         songTitle={currentSong?.title}
         lyrics={lyrics}
