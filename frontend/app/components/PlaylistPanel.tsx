@@ -673,12 +673,12 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
               <div>
                 <label className="block text-sm font-bold text-slate-300 mb-2">
                   <Music className="w-4 h-4 inline mr-2" />
-                  Sounds (.mp3) <span className="text-red-400">*</span>
+                  Sounds (.mp3, .m4a) <span className="text-red-400">*</span>
                 </label>
                 <input
                   ref={soundInputRef}
                   type="file"
-                  accept=".mp3,audio/mpeg"
+                  accept=".mp3,.m4a,audio/mpeg,audio/mp4,audio/x-m4a"
                   onChange={handleSoundFileChange}
                   className="hidden"
                 />
@@ -698,7 +698,7 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
                     className="w-full px-4 py-3 bg-white/5 border border-dashed border-white/20 rounded-xl text-slate-400 hover:bg-white/10 hover:border-blue-500/50 transition-all flex items-center justify-center gap-2"
                   >
                     <Upload className="w-4 h-4" />
-                    <span>Click to upload MP3 file</span>
+                    <span>Click to upload audio file</span>
                   </button>
                 )}
               </div>
@@ -830,12 +830,12 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
               <div>
                 <label className="block text-sm font-bold text-slate-300 mb-2">
                   <Music className="w-4 h-4 inline mr-2" />
-                  Replace Sounds (.mp3)
+                  Replace Sounds (.mp3, .m4a)
                 </label>
                 <input
                   ref={updateSoundInputRef}
                   type="file"
-                  accept=".mp3,audio/mpeg"
+                  accept=".mp3,.m4a,audio/mpeg,audio/mp4,audio/x-m4a"
                   onChange={handleUpdateSoundFileChange}
                   className="hidden"
                 />
@@ -855,7 +855,7 @@ export default function PlaylistPanel({ songs, currentSongIndex, onSongSelect, o
                     className="w-full px-4 py-3 bg-white/5 border border-dashed border-white/20 rounded-xl text-slate-400 hover:bg-white/10 hover:border-blue-500/50 transition-all flex items-center justify-center gap-2"
                   >
                     <Upload className="w-4 h-4" />
-                    <span>Click to upload new MP3 file</span>
+                    <span>Click to upload new audio file</span>
                   </button>
                 )}
               </div>

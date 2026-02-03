@@ -19,44 +19,38 @@ client = MongoClient(uri, server_api=ServerApi('1'))
 db = client["tunify"]
 collection = db["song_playlist_metadata"]
 
+# Supported audio formats
+SUPPORTED_AUDIO_FORMATS = ['mp3', 'm4a']
+
 
 class SongMetadata(BaseModel):
-    """Pydantic model for song metadata document."""
-    title: str  # Bắt buộc
-    gcs_mp3_blob: Optional[str] = None  # Blob path in GCS (sounds/filename.mp3)
-    gcs_lrc_blob: Optional[str] = None  # Blob path in GCS (lyrics/filename.lrc)
-    gcs_mp3_path: Optional[str] = None  # Signed URL for MP3
-    gcs_lrc_path: Optional[str] = None  # Signed URL for LRC
-    has_lyrics: bool = False  # Mặc định là False
+    """
+    Pydantic model for song metadata document.
+    Supports multiple audio formats: MP3, M4A
+    """
+    title: str
+    
+    # Audio file fields
+    gcs_audio_blob: Optional[str] = None   # Blob path (sounds/filename.mp3 or .m4a)
+    gcs_audio_path: Optional[str] = None   # Signed URL for audio file
+    audio_format: Optional[str] = None     # Audio format: 'mp3', 'm4a'
+    
+    # Lyrics file fields
+    gcs_lrc_blob: Optional[str] = None     # Blob path (lyrics/filename.lrc)
+    gcs_lrc_path: Optional[str] = None     # Signed URL for LRC
+    has_lyrics: bool = False
 
 
 def insert_song_metadata(song: SongMetadata):
-    """
-    Insert a song metadata document into the collection.
-    
-    Args:
-        song: SongMetadata object containing song information
-    
-    Returns:
-        The inserted document's ID
-    """
+    """Insert a song metadata document into the collection."""
     document = song.model_dump()
-    
     result = collection.insert_one(document)
     print(f"Inserted document with ID: {result.inserted_id}")
     return result.inserted_id
 
 
 def insert_many_song_metadata(songs: list[SongMetadata]):
-    """
-    Insert multiple song metadata documents into the collection.
-    
-    Args:
-        songs: List of SongMetadata objects
-    
-    Returns:
-        List of inserted document IDs
-    """
+    """Insert multiple song metadata documents into the collection."""
     documents = [song.model_dump() for song in songs]
     result = collection.insert_many(documents)
     print(f"Inserted {len(result.inserted_ids)} documents")
@@ -64,16 +58,7 @@ def insert_many_song_metadata(songs: list[SongMetadata]):
 
 
 def update_song_metadata(document_id, update_fields: dict):
-    """
-    Update a song metadata document by ID.
-    
-    Args:
-        document_id: The ObjectId of the document to update
-        update_fields: Dictionary of fields to update
-    
-    Returns:
-        The number of modified documents
-    """
+    """Update a song metadata document by ID."""
     from bson import ObjectId
     
     result = collection.update_one(
@@ -85,29 +70,15 @@ def update_song_metadata(document_id, update_fields: dict):
 
 
 def get_all_songs():
-    """
-    Get all songs from the collection.
-    
-    Returns:
-        List of song documents
-    """
+    """Get all songs from the collection."""
     songs = list(collection.find({}))
-    # Convert ObjectId to string for JSON serialization
     for song in songs:
         song["_id"] = str(song["_id"])
     return songs
 
 
 def get_song_by_id(document_id):
-    """
-    Get a song by its ID.
-    
-    Args:
-        document_id: The ObjectId or string ID of the document
-    
-    Returns:
-        The song document or None if not found
-    """
+    """Get a song by its ID."""
     from bson import ObjectId
     
     song = collection.find_one(
@@ -119,15 +90,7 @@ def get_song_by_id(document_id):
 
 
 def get_song_by_title(title: str):
-    """
-    Get a song by its title.
-    
-    Args:
-        title: The title of the song
-    
-    Returns:
-        The song document or None if not found
-    """
+    """Get a song by its title."""
     song = collection.find_one({"title": title})
     if song:
         song["_id"] = str(song["_id"])
@@ -135,15 +98,7 @@ def get_song_by_title(title: str):
 
 
 def delete_song_by_id(document_id):
-    """
-    Delete a song by its ID.
-    
-    Args:
-        document_id: The ObjectId or string ID of the document
-    
-    Returns:
-        True if document was deleted, False otherwise
-    """
+    """Delete a song by its ID."""
     from bson import ObjectId
     
     result = collection.delete_one(
@@ -162,26 +117,27 @@ if __name__ == "__main__":
     except Exception as e:
         print(e)
     
-    # Example: Insert a single song (chỉ cần title)
+    # Example: Insert a single song
     song1 = SongMetadata(title="Cause I Love You")
     insert_song_metadata(song1)
     
-    # Example: Insert với đầy đủ thông tin
+    # Example: Insert with full info (MP3)
     song2 = SongMetadata(
         title="Con Mưa Tình Yêu",
-        gcs_mp3_path="gs://bucket-name/songs/ConMuaTinhYeu.mp3",
-        gcs_lrc_path="gs://bucket-name/lyrics/ConMuaTinhYeu.lrc",
+        gcs_audio_blob="sounds/ConMuaTinhYeu.mp3",
+        gcs_audio_path="https://storage.googleapis.com/...",
+        audio_format="mp3",
+        gcs_lrc_blob="lyrics/ConMuaTinhYeu.lrc",
+        gcs_lrc_path="https://storage.googleapis.com/...",
         has_lyrics=True
     )
     insert_song_metadata(song2)
     
-    # Example: Insert multiple songs
-    # songs = [
-    #     SongMetadata(title="Dành Cho Em"),
-    #     SongMetadata(
-    #         title="Em Không Quay Về",
-    #         gcs_mp3_path="gs://bucket-name/songs/EmKhongQuayVe.mp3",
-    #         has_lyrics=False
-    #     )
-    # ]
-    # insert_many_song_metadata(songs)
+    # Example: Insert with M4A format
+    song3 = SongMetadata(
+        title="Em Không Quay Về",
+        gcs_audio_blob="sounds/EmKhongQuayVe.m4a",
+        audio_format="m4a",
+        has_lyrics=False
+    )
+    insert_song_metadata(song3)
