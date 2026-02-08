@@ -55,13 +55,31 @@ export default function PlayerControls({
   const [isDragging, setIsDragging] = useState(false);
   const [dragProgress, setDragProgress] = useState(0);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
+  // State để giữ vị trí sau khi seek, tránh nhảy ngược
+  const [seekingTo, setSeekingTo] = useState<number | null>(null);
 
   const progressBarRef = useRef<HTMLDivElement>(null);
 
   const visualProgress = useMemo(() => {
     if (isDragging) return dragProgress * 100;
+    // Khi đang seek, hiện vị trí đã seek cho đến khi audio bắt kịp
+    if (seekingTo !== null) {
+      const seekProgress = (seekingTo / duration) * 100;
+      // Nếu currentTime đã gần đến seekingTo, reset state
+      if (Math.abs(currentTime - seekingTo) < 0.5) {
+        return duration > 0 ? (currentTime / duration) * 100 : 0;
+      }
+      return seekProgress;
+    }
     return duration > 0 ? (currentTime / duration) * 100 : 0;
-  }, [isDragging, dragProgress, currentTime, duration]);
+  }, [isDragging, dragProgress, currentTime, duration, seekingTo]);
+
+  // Reset seekingTo khi currentTime đã bắt kịp
+  useEffect(() => {
+    if (seekingTo !== null && Math.abs(currentTime - seekingTo) < 0.5) {
+      setSeekingTo(null);
+    }
+  }, [currentTime, seekingTo]);
 
   const getProgressFromEvent = useCallback((clientX: number) => {
     if (!progressBarRef.current) return 0;
@@ -70,15 +88,28 @@ export default function PlayerControls({
     return x / rect.width;
   }, []);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  // Handle click trực tiếp (không drag)
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    // Nếu đang drag thì không xử lý click
+    if (isDragging) return;
+    
+    const progress = getProgressFromEvent(e.clientX);
+    const seekTime = progress * duration;
+    setSeekingTo(seekTime);
+    onSeek(seekTime);
+  }, [isDragging, getProgressFromEvent, duration, onSeek]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
     setIsDragging(true);
     const progress = getProgressFromEvent(e.clientX);
     setDragProgress(progress);
-  };
+  }, [getProgressFromEvent]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging) return;
+      e.preventDefault();
       const progress = getProgressFromEvent(e.clientX);
       setDragProgress(progress);
     };
@@ -86,7 +117,9 @@ export default function PlayerControls({
     const handleMouseUp = (e: MouseEvent) => {
       if (isDragging) {
         const progress = getProgressFromEvent(e.clientX);
-        onSeek(progress * duration);
+        const seekTime = progress * duration;
+        setSeekingTo(seekTime);
+        onSeek(seekTime);
         setIsDragging(false);
       }
     };
@@ -217,7 +250,7 @@ export default function PlayerControls({
             {/* Time + Progress Bar */}
             <div className="flex-1 flex items-center gap-3">
               <span className="text-zinc-400 text-[11px] font-mono min-w-[36px] text-right">
-                {formatTime(isDragging ? dragProgress * duration : currentTime)}
+                {formatTime(isDragging ? dragProgress * duration : (seekingTo !== null ? seekingTo : currentTime))}
               </span>
 
               <div className="flex-1 relative h-6 flex items-center group/bar">
@@ -234,7 +267,8 @@ export default function PlayerControls({
                 {/* Progress Track */}
                 <div
                   ref={progressBarRef}
-                  className="w-full h-1 bg-white/10 rounded-full cursor-pointer relative group-hover/bar:h-1.5 transition-all duration-300"
+                  className="w-full h-1 bg-white/10 rounded-full cursor-pointer relative group-hover/bar:h-1.5 transition-[height] duration-300"
+                  onClick={handleClick}
                   onMouseDown={handleMouseDown}
                   onMouseMove={(e) => {
                     const time = getProgressFromEvent(e.clientX) * duration;
@@ -245,13 +279,13 @@ export default function PlayerControls({
                   {/* Click area padding */}
                   <div className="absolute -inset-y-3 w-full" />
 
-                  {/* Progress Fill */}
+                  {/* Progress Fill - không dùng transition width để mượt hơn */}
                   <div
-                    className={`h-full rounded-full relative transition-all duration-150 ${isDragging ? 'bg-blue-400' : 'bg-white/60 group-hover/bar:bg-blue-400'}`}
+                    className={`h-full rounded-full relative will-change-[width] ${isDragging ? 'bg-blue-400' : 'bg-white/60 group-hover/bar:bg-blue-400'}`}
                     style={{ width: `${visualProgress}%` }}
                   >
                     {/* Handle */}
-                    <div className={`absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.5)] transition-all duration-300 ${isDragging ? 'scale-110 opacity-100' : 'opacity-0 group-hover/bar:opacity-100 scale-100'
+                    <div className={`absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.5)] transition-opacity duration-150 ${isDragging ? 'scale-110 opacity-100' : 'opacity-0 group-hover/bar:opacity-100 scale-100'
                       }`} />
                   </div>
                 </div>
